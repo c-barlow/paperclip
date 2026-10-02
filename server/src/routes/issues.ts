@@ -244,6 +244,12 @@ import {
 } from "./workspace-command-authz.js";
 import { shouldWakeAssigneeOnCheckout } from "./issues-checkout-wakeup.js";
 import {
+  probeLimit,
+  setListPaginationHeaders,
+  splitProbePage,
+  type ListPagination,
+} from "./list-truncation.js";
+import {
   formatAttachmentSize,
   GENERIC_ATTACHMENT_CONTENT_TYPES,
   isInlineAttachmentContentType,
@@ -3086,10 +3092,12 @@ type IssueListPreparedResponse =
       body: CompactIssue[];
       etag: string;
       cacheControl: string;
+      pagination: ListPagination;
     }
   | {
       kind: "full";
       body: unknown[];
+      pagination: ListPagination;
     };
 
 type IssueListCacheStatus = "miss" | "hit" | "coalesced" | "stale" | "retry";
@@ -7970,8 +7978,14 @@ export function issueRoutes(
         !Number.isInteger(parsedLimit) ||
         parsedLimit <= 0)
     ) {
+      // Deliberately does not claim an upper bound: an over-max `limit` is
+      // clamped, not rejected, so this branch can never fire for one. The
+      // applied value is reported in the X-Result-Limit response header.
       res.status(400).json({
-        error: `limit must be a positive integer up to ${ISSUE_LIST_MAX_LIMIT}`,
+        error:
+          `limit must be a positive integer; values above ` +
+          `${ISSUE_LIST_MAX_LIMIT} are clamped to ${ISSUE_LIST_MAX_LIMIT} ` +
+          `(see the X-Result-Limit response header)`,
       });
       return;
     }
@@ -8102,10 +8116,24 @@ export function issueRoutes(
       allowTtlCache: compactView,
       diagnostics: opts.issueListDiagnostics,
       compute: async () => {
-        const rawResult = await svc.list(companyId, listFilters);
+        // Read one row past the page so truncation is measured, not inferred:
+        // `rows.length < requestedLimit` cannot distinguish a corpus that ends
+        // exactly at the cap from one the cap cut off.
+        const probeResult = await svc.list(companyId, {
+          ...listFilters,
+          limit: probeLimit(limit),
+        });
+        const page = splitProbePage(probeResult, limit);
+        const rawResult = page.rows;
         const result = (await actorCanReadCompanyScope(req, companyId))
           ? rawResult
           : await filterIssuesForActor(req, rawResult);
+        const pagination: ListPagination = {
+          count: result.length,
+          limit,
+          offset,
+          truncated: page.truncated,
+        };
         const issueIds = result.map((issue) => issue.id);
         if (compactView) {
           const [handoffStates, recoveryActionByIssue] = await Promise.all([
@@ -8140,6 +8168,7 @@ export function issueRoutes(
             body: compactResult,
             etag: compactIssueListEtag(compactResult),
             cacheControl: "private, must-revalidate",
+            pagination,
           };
         }
         const [handoffStates, recoveryActionByIssue] = await Promise.all([
@@ -8169,11 +8198,15 @@ export function issueRoutes(
             successfulRunHandoff: handoffStates.get(issue.id) ?? null,
             activeRecoveryAction: recoveryActionByIssue.get(issue.id) ?? null,
           })),
+          pagination,
         };
       },
     });
 
     res.setHeader("X-Paperclip-Request-Cache", coordinated.cacheStatus);
+    if (coordinated.response) {
+      setListPaginationHeaders(res, coordinated.response.pagination);
+    }
     if (!coordinated.response) {
       const body = {
         error: "Too many concurrent issue-list requests for this actor/client",
