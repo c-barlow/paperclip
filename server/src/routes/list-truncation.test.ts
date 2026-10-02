@@ -5,6 +5,7 @@ import {
   LIST_RESULT_OFFSET_HEADER,
   LIST_RESULT_TRUNCATED_HEADER,
   LIST_TOTAL_COUNT_HEADER,
+  parseListOffsetParam,
   probeLimit,
   setListPaginationHeaders,
   splitProbePage,
@@ -54,6 +55,32 @@ describe("splitProbePage", () => {
   });
 });
 
+describe("parseListOffsetParam", () => {
+  it("accepts an absent parameter and a usable offset", () => {
+    expect(parseListOffsetParam(undefined)).toBeUndefined();
+    expect(parseListOffsetParam("0")).toBe(0);
+    expect(parseListOffsetParam("1000")).toBe(1000);
+    expect(parseListOffsetParam(String(Number.MAX_SAFE_INTEGER))).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it("rejects an offset the server could not apply", () => {
+    // A digit-only test alone passes both of these. The first is finite but
+    // beyond what Postgres takes as an OFFSET, so it failed the request; the
+    // second parses to Infinity, which floors to 0 — the caller would get page
+    // one while the response reported the offset it asked for.
+    expect(parseListOffsetParam("1".repeat(20))).toBeNull();
+    expect(parseListOffsetParam("9".repeat(400))).toBeNull();
+  });
+
+  it("rejects a malformed or repeated offset", () => {
+    for (const raw of ["abc", "-1", "1.5", "", " 1", "1e3", ["0", "5"], 7]) {
+      expect(parseListOffsetParam(raw), JSON.stringify(raw)).toBeNull();
+    }
+  });
+});
+
 describe("setListPaginationHeaders", () => {
   it("publishes the applied limit, offset, count and truncation flag", () => {
     const { headers, res } = fakeResponse();
@@ -80,6 +107,19 @@ describe("setListPaginationHeaders", () => {
       truncated: false,
     });
     expect(headers.get(LIST_RESULT_TRUNCATED_HEADER)).toBe("false");
+  });
+
+  it("writes unknown when the route cannot answer, never false", () => {
+    // `false` is the only completeness claim, so a route that cannot measure
+    // truncation for this caller must not fall back to it.
+    const { headers, res } = fakeResponse();
+    setListPaginationHeaders(res, {
+      count: 1,
+      limit: 1,
+      offset: 0,
+      truncated: "unknown",
+    });
+    expect(headers.get(LIST_RESULT_TRUNCATED_HEADER)).toBe("unknown");
   });
 
   it("omits the total when the route did not compute one", () => {

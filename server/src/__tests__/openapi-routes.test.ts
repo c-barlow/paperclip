@@ -969,7 +969,11 @@ describe("list truncation OpenAPI contract", () => {
 
     for (const operation of [issueList, runList]) {
       const headers = operation.responses["200"].headers;
-      expect(headers["X-Result-Truncated"].schema.enum).toEqual(["true", "false"]);
+      expect(headers["X-Result-Truncated"].schema.enum).toEqual([
+        "true",
+        "false",
+        "unknown",
+      ]);
       expect(headers["X-Result-Count"]).toBeDefined();
       expect(headers["X-Result-Limit"].description).toContain("clamped");
       expect(headers["X-Result-Offset"]).toBeDefined();
