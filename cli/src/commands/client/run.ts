@@ -13,6 +13,28 @@ import {
 interface RunListOptions extends BaseClientOptions {
   agentId?: string;
   limit?: string;
+  all?: boolean;
+}
+
+// `GET /companies/:companyId/heartbeat-runs` applies no LIMIT at all when the
+// caller sends none, so a bare `paperclip run list` asks for the company's
+// entire run corpus — tens of thousands of rows and tens of megabytes on a
+// long-lived instance. Default to a bounded page and say so on stderr whenever
+// the page is full, so the truncation is never silent; `--all` keeps the
+// unbounded form available, since there is no `offset` on this route and the
+// server clamps `limit` to 1000.
+const RUN_LIST_DEFAULT_LIMIT = 200;
+
+// The route parses `limit` as `parseInt(limit, 10) || 200`, so a malformed
+// value is silently served as 200 rows. Reject it here instead: otherwise the
+// caller gets a bounded page it never asked for and no indication of it.
+function parseRunListLimit(raw: string | undefined): number {
+  if (raw === undefined) return RUN_LIST_DEFAULT_LIMIT;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`--limit must be a positive integer (got ${JSON.stringify(raw)})`);
+  }
+  return parsed;
 }
 
 interface RunLiveOptions extends BaseClientOptions {
@@ -50,17 +72,27 @@ export function registerRunCommands(command: Command): void {
       .description("List heartbeat runs for a company")
       .option("-C, --company-id <id>", "Company ID")
       .option("--agent-id <id>", "Filter by agent ID")
-      .option("--limit <n>", "Maximum runs to return")
+      .option("--limit <n>", `Maximum runs to return (default ${RUN_LIST_DEFAULT_LIMIT})`)
+      .option("--all", "Return every run for the company (unbounded response)")
       .action(async (opts: RunListOptions) => {
         try {
           const ctx = resolveCommandContext(opts, { requireCompany: true });
           const params = new URLSearchParams();
           if (opts.agentId) params.set("agentId", opts.agentId);
-          if (opts.limit) params.set("limit", opts.limit);
+          if (opts.all && opts.limit !== undefined) {
+            throw new Error("--all and --limit cannot be combined");
+          }
+          const limit = opts.all ? null : parseRunListLimit(opts.limit);
+          if (limit !== null) params.set("limit", String(limit));
           const query = params.toString();
           const rows = (await ctx.api.get<HeartbeatRun[]>(
             `${apiPath`/api/companies/${ctx.companyId}/heartbeat-runs`}${query ? `?${query}` : ""}`,
           )) ?? [];
+          if (limit !== null && rows.length >= limit) {
+            console.error(
+              `Showing ${rows.length} run(s); more may exist. Raise --limit (server max 1000) or pass --all.`,
+            );
+          }
           printRuns(rows, ctx.json);
         } catch (err) {
           handleCommandError(err);
