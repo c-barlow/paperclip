@@ -3924,7 +3924,7 @@ const listPaginationResponseHeaders = {
   },
   "X-Result-Truncated": {
     description:
-      "`true` when at least one more row exists after this page. Read this for completeness instead of comparing the row count against the requested limit. `unknown` means the server cannot answer for this caller — currently only for an actor whose rows are authorization-filtered after the query, for which completeness is not obtainable on this route. Treat `unknown` as `true`; only `false` is a completeness claim.",
+      "`true` when at least one more row exists after this page. Read this for completeness instead of comparing the row count against the requested limit. `false` is the only completeness claim. `unknown` means the server cannot answer for this caller — currently only for an actor whose rows are authorization-filtered after the query. Such a caller never receives `false`, so it must stop on an empty page rather than wait for one, and must treat the result as a floor: a page can be empty because every row in its window was filtered while readable rows remain further on. Where completeness matters, scope the request to a subtree the actor can read in full.",
     schema: { type: "string", enum: ["true", "false", "unknown"] },
   },
 };

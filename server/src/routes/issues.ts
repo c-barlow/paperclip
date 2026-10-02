@@ -8140,9 +8140,16 @@ export function issueRoutes(
         const page = readsCompanyScope
           ? splitProbePage(probeResult, limit)
           : {
-              rows: (await filterIssuesForActor(req, probeResult)).slice(
-                0,
-                limit,
+              // The probe row is dropped BEFORE filtering, so the body stays
+              // the first `limit` rows of the same window the query would have
+              // returned without a probe. Filtering first and trimming after
+              // would pull a row from the next window into this page: with raw
+              // order [hidden, readable] and limit 1, offset 0 and offset 1
+              // would both return the readable row, and an offset sweep would
+              // collect it twice.
+              rows: await filterIssuesForActor(
+                req,
+                probeResult.slice(0, limit),
               ),
               truncated: "unknown" as const,
             };
