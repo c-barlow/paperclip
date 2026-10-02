@@ -38,6 +38,10 @@ export type ListPagination = {
    * row the actor may not read exists, and measuring the filtered page would
    * report a complete collection when readable rows remain further on. The
    * header carries the word, because a caller reading "false" would stop.
+   *
+   * Such a caller never receives `false`, so it stops on an empty page and
+   * treats the result as a floor; `"unknown"` says completeness is not
+   * obtainable here, not that more rows certainly exist.
    */
   truncated: boolean | "unknown";
   /**
