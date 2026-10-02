@@ -147,6 +147,39 @@ describe("run inspection commands", () => {
     expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("more may exist");
   });
 
+  it("notices truncation when --limit is above the server clamp", async () => {
+    // The route clamps `limit` down to 1000 silently, so a notice keyed to the
+    // requested value could never fire here: `1000 >= 2000` is false. Compare
+    // against the effective limit instead.
+    const rows = Array.from({ length: 1000 }, (_, index) => ({
+      id: `run-${index}`,
+      companyId: COMPANY_ID,
+      agentId: AGENT_ID,
+      status: "succeeded",
+      invocationSource: "timer",
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await createProgram().parseAsync([
+      "run", "list",
+      "--api-base", "http://localhost:3100",
+      "--api-key", "board-token",
+      "--company-id", COMPANY_ID,
+      "--limit", "2000",
+    ], { from: "user" });
+
+    const notice = errorSpy.mock.calls.flat().join(" ");
+    expect(notice).toContain("Showing 1000 run(s); more may exist");
+    // And it must not tell the caller to raise a limit that is already clamped.
+    expect(notice).toContain("so raising it does nothing");
+    expect(notice).not.toContain("Raise --limit");
+  });
+
   it("supports run events, issues, workspace operations, and watchdog decisions", async () => {
     const fetchMock = vi
       .fn()

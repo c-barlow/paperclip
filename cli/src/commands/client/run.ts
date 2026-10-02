@@ -25,6 +25,16 @@ interface RunListOptions extends BaseClientOptions {
 // server clamps `limit` to 1000.
 const RUN_LIST_DEFAULT_LIMIT = 200;
 
+// The route also clamps `limit` down to 1000 without saying so, so a requested
+// limit above this is not the number of rows the server can return. The notice
+// below must compare against the EFFECTIVE limit: `rows.length >= 2000` can
+// never be true against a 1000-row ceiling, so a notice keyed to the requested
+// value would be unable to fire in exactly the truncated case it exists for.
+// Mirroring the bound here is a second copy, and it fails in the loud direction
+// if the server raises it (a notice when none was needed). It goes away once
+// the route reports `X-Result-Truncated`.
+const RUN_LIST_SERVER_MAX_LIMIT = 1000;
+
 // The route parses `limit` as `parseInt(limit, 10) || 200`, so a malformed
 // value is silently served as 200 rows. Reject it here instead: otherwise the
 // caller gets a bounded page it never asked for and no indication of it.
@@ -82,16 +92,22 @@ export function registerRunCommands(command: Command): void {
           if (opts.all && opts.limit !== undefined) {
             throw new Error("--all and --limit cannot be combined");
           }
-          const limit = opts.all ? null : parseRunListLimit(opts.limit);
-          if (limit !== null) params.set("limit", String(limit));
+          const requested = opts.all ? null : parseRunListLimit(opts.limit);
+          if (requested !== null) params.set("limit", String(requested));
           const query = params.toString();
           const rows = (await ctx.api.get<HeartbeatRun[]>(
             `${apiPath`/api/companies/${ctx.companyId}/heartbeat-runs`}${query ? `?${query}` : ""}`,
           )) ?? [];
-          if (limit !== null && rows.length >= limit) {
-            console.error(
-              `Showing ${rows.length} run(s); more may exist. Raise --limit (server max 1000) or pass --all.`,
-            );
+          const effective =
+            requested === null ? null : Math.min(requested, RUN_LIST_SERVER_MAX_LIMIT);
+          if (effective !== null && rows.length >= effective) {
+            // Do not advise raising a limit that is already clamped: that is
+            // advice which cannot work in the one case it is printed.
+            const remedy = requested !== null && requested > effective
+              ? `--limit ${requested} is above the server maximum of ${RUN_LIST_SERVER_MAX_LIMIT},`
+                + " so raising it does nothing. Pass --all for the whole corpus."
+              : `Raise --limit (server max ${RUN_LIST_SERVER_MAX_LIMIT}) or pass --all.`;
+            console.error(`Showing ${rows.length} run(s); more may exist. ${remedy}`);
           }
           printRuns(rows, ctx.json);
         } catch (err) {
