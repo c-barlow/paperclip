@@ -3924,8 +3924,8 @@ const listPaginationResponseHeaders = {
   },
   "X-Result-Truncated": {
     description:
-      "`true` when at least one more row exists after this page. Read this for completeness instead of comparing the row count against the requested limit.",
-    schema: { type: "string", enum: ["true", "false"] },
+      "`true` when at least one more row exists after this page. Read this for completeness instead of comparing the row count against the requested limit. `unknown` means the server cannot answer for this caller — currently only for an actor whose rows are authorization-filtered after the query, for which completeness is not obtainable on this route. Treat `unknown` as `true`; only `false` is a completeness claim.",
+    schema: { type: "string", enum: ["true", "false", "unknown"] },
   },
 };
 
@@ -6856,7 +6856,7 @@ registry.registerPath({
   tags: ["runs"],
   summary: "List heartbeat runs for a company",
   description:
-    "Newest first. The response is a bare array; page metadata is in the `X-Result-*` headers and the full matching row count in `X-Total-Count`. Omitting `limit` returns every run for the company, which can be very large — prefer `limit` with `offset`, paging until `X-Result-Truncated` is false. A `limit` above the server maximum is clamped rather than rejected; read the applied value from `X-Result-Limit`.",
+    "Newest first. The response is a bare array; page metadata is in the `X-Result-*` headers and the full matching row count in `X-Total-Count`. Omitting `limit` returns every run for the company, which can be very large — prefer `limit` with `offset`, paging until `X-Result-Truncated` is false. A `limit` above the server maximum is clamped rather than rejected, and a non-positive or non-numeric one falls back to the route default; read the applied value from `X-Result-Limit`.",
   request: {
     params: z.object({ companyId: z.string() }),
     query: z
@@ -6866,20 +6866,25 @@ registry.registerPath({
           .enum(["true", "false", "1", "0"])
           .optional()
           .describe("Return the reduced per-run projection."),
+        // Deliberately not `.positive()`: the handler does not reject a
+        // non-positive or non-numeric `limit`, it substitutes its default, so a
+        // stricter schema here would have generated clients refuse requests the
+        // API accepts.
         limit: z.coerce
           .number()
           .int()
-          .positive()
           .optional()
           .describe(
-            "Page size. A value above the server maximum is clamped; the applied value is reported in X-Result-Limit. Omit for no limit.",
+            "Page size. A value above the server maximum is clamped, and a non-positive or non-numeric value falls back to the route default; either way the applied value is reported in X-Result-Limit. Omit for no limit.",
           ),
         offset: z.coerce
           .number()
           .int()
           .nonnegative()
           .optional()
-          .describe("Rows to skip. Rejected with 400 when not a non-negative integer."),
+          .describe(
+            "Rows to skip. Rejected with 400 unless it is a non-negative integer the server can apply.",
+          ),
       })
       .passthrough(),
   },

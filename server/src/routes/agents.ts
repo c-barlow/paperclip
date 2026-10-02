@@ -103,6 +103,8 @@ import {
   collectAgentAdapterWorkspaceCommandPaths,
 } from "./workspace-command-authz.js";
 import {
+  LIST_OFFSET_ERROR,
+  parseListOffsetParam,
   probeLimit,
   setListPaginationHeaders,
   splitProbePage,
@@ -6860,12 +6862,12 @@ export function agentRoutes(
     const limit = limitParam
       ? Math.max(1, Math.min(HEARTBEAT_RUN_LIST_MAX_LIMIT, parseInt(limitParam, 10) || 200))
       : undefined;
-    const rawOffset = req.query.offset;
-    if (rawOffset !== undefined && (typeof rawOffset !== "string" || !/^\d+$/.test(rawOffset))) {
-      res.status(400).json({ error: "offset must be a non-negative integer" });
+    const parsedOffset = parseListOffsetParam(req.query.offset);
+    if (parsedOffset === null) {
+      res.status(400).json({ error: LIST_OFFSET_ERROR });
       return;
     }
-    const offset = rawOffset === undefined ? 0 : Number.parseInt(rawOffset, 10);
+    const offset = parsedOffset ?? 0;
     const summary = req.query.summary === "true" || req.query.summary === "1";
     // Read one row past the page so truncation is measured rather than
     // inferred: with a server-side cap, `rows.length < requestedLimit` cannot

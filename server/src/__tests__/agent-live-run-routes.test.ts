@@ -1970,14 +1970,38 @@ describe("agent live run routes", () => {
       expect(res.headers["x-result-count"]).toBe("1");
     });
 
-    it("rejects a malformed offset instead of silently ignoring it", async () => {
+    it.each([
+      ["-1", "negative"],
+      ["abc", "non-numeric"],
+      // Digit-only, so a pattern test alone accepts both: the first is finite
+      // but past what Postgres takes as an OFFSET, the second parses to
+      // Infinity and would floor to 0 — serving page one while the response
+      // reported the offset the caller asked for.
+      ["1".repeat(20), "beyond the applicable range"],
+      ["9".repeat(400), "unrepresentable"],
+    ])("rejects a %s offset instead of silently ignoring it (%s)", async (offset) => {
       seedRunCorpus(5);
 
-      const res = await listRuns({ offset: "-1" });
+      const res = await listRuns({ offset });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe("offset must be a non-negative integer");
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+      expect(res.body.error).toContain("offset must be a non-negative integer");
       expect(mockHeartbeatService.list).not.toHaveBeenCalled();
+    });
+
+    it("still accepts the largest applicable offset", async () => {
+      // The control for the rejections above: a bound that rejects everything
+      // would satisfy them.
+      seedRunCorpus(5);
+
+      const res = await listRuns({
+        limit: "2",
+        offset: String(Number.MAX_SAFE_INTEGER),
+      });
+
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.headers["x-result-offset"]).toBe(String(Number.MAX_SAFE_INTEGER));
+      expect(res.body).toHaveLength(0);
     });
 
     it("omits the applied-limit header when the caller sent no limit", async () => {

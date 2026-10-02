@@ -244,6 +244,7 @@ import {
 } from "./workspace-command-authz.js";
 import { shouldWakeAssigneeOnCheckout } from "./issues-checkout-wakeup.js";
 import {
+  LIST_OFFSET_ERROR,
   probeLimit,
   setListPaginationHeaders,
   splitProbePage,
@@ -7991,11 +7992,13 @@ export function issueRoutes(
     }
     if (
       rawOffset !== undefined &&
-      (parsedOffset === null ||
-        !Number.isInteger(parsedOffset) ||
+      // Safe-integer rather than integer: a long digit string parses to a
+      // finite value Postgres cannot take as an OFFSET, which failed the
+      // request rather than answering it.
+      (parsedOffset === null || !Number.isSafeInteger(parsedOffset) ||
         parsedOffset < 0)
     ) {
-      res.status(400).json({ error: "offset must be a non-negative integer" });
+      res.status(400).json({ error: LIST_OFFSET_ERROR });
       return;
     }
     if (sortField !== undefined && sortField !== "updated" && sortField !== "id") {
@@ -8123,11 +8126,27 @@ export function issueRoutes(
           ...listFilters,
           limit: probeLimit(limit),
         });
-        const page = splitProbePage(probeResult, limit);
-        const rawResult = page.rows;
-        const result = (await actorCanReadCompanyScope(req, companyId))
-          ? rawResult
-          : await filterIssuesForActor(req, rawResult);
+        // For an actor whose rows are authorization-filtered after the query,
+        // NEITHER page answers the truncation question safely. Measuring the
+        // raw page makes the header an existence oracle — the actor varies
+        // filters and learns that an issue it may not read exists. Measuring
+        // the filtered page reports a complete collection whenever the dropped
+        // rows sat inside the probe window, while readable rows remain further
+        // on; a caller paging until `false` would stop early. So the route says
+        // `unknown` instead of picking a wrong answer. Server-side offsets index
+        // the unfiltered set, so completeness was never obtainable here for such
+        // an actor — this reports that, rather than hiding it behind a `false`.
+        const readsCompanyScope = await actorCanReadCompanyScope(req, companyId);
+        const page = readsCompanyScope
+          ? splitProbePage(probeResult, limit)
+          : {
+              rows: (await filterIssuesForActor(req, probeResult)).slice(
+                0,
+                limit,
+              ),
+              truncated: "unknown" as const,
+            };
+        const result = page.rows;
         const pagination: ListPagination = {
           count: result.length,
           limit,

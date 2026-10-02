@@ -29,8 +29,17 @@ export type ListPagination = {
   limit?: number;
   /** The offset the server actually applied. */
   offset: number;
-  /** True when at least one more row exists after this page. */
-  truncated: boolean;
+  /**
+   * True when at least one more row exists after this page.
+   *
+   * `"unknown"` when the route cannot answer for this caller — the one case so
+   * far is an actor whose rows are authorization-filtered after the query, for
+   * which neither answer is safe: measuring the raw page would report whether a
+   * row the actor may not read exists, and measuring the filtered page would
+   * report a complete collection when readable rows remain further on. The
+   * header carries the word, because a caller reading "false" would stop.
+   */
+  truncated: boolean | "unknown";
   /**
    * Total rows matching the request across all pages, when the route can
    * establish it cheaply. Omitted rather than guessed — an absent header means
@@ -63,6 +72,32 @@ export function probeLimit(limit: number): number {
   return limit + 1;
 }
 
+/**
+ * Parses an `offset` query parameter.
+ *
+ * A digit-only test is not enough on its own: a long digit string parses to a
+ * value Postgres cannot take as an `OFFSET`, which fails the request instead of
+ * answering it, and a longer one parses to `Infinity`, which floors to 0 — the
+ * caller would receive page one while the response reported the offset it
+ * asked for. Both are rejected here, so an offset that is reported back is an
+ * offset that was applied.
+ *
+ * Returns `undefined` when the parameter is absent and `null` when it is
+ * present but unusable.
+ */
+export function parseListOffsetParam(
+  raw: unknown,
+): number | null | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+export const LIST_OFFSET_ERROR =
+  `offset must be a non-negative integer no larger than ${Number.MAX_SAFE_INTEGER}`;
+
 export function setListPaginationHeaders(
   res: Response,
   pagination: ListPagination,
@@ -74,7 +109,11 @@ export function setListPaginationHeaders(
   res.setHeader(LIST_RESULT_OFFSET_HEADER, String(pagination.offset));
   res.setHeader(
     LIST_RESULT_TRUNCATED_HEADER,
-    pagination.truncated ? "true" : "false",
+    pagination.truncated === "unknown"
+      ? "unknown"
+      : pagination.truncated
+        ? "true"
+        : "false",
   );
   if (pagination.total !== undefined) {
     res.setHeader(LIST_TOTAL_COUNT_HEADER, String(pagination.total));
