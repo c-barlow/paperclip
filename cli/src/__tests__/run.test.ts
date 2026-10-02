@@ -98,6 +98,55 @@ describe("run inspection commands", () => {
     expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("POST");
   });
 
+  it("bounds `run list` by default and keeps the unbounded form behind --all", async () => {
+    const rows = Array.from({ length: 200 }, (_, index) => ({
+      id: `run-${index}`,
+      companyId: COMPANY_ID,
+      agentId: AGENT_ID,
+      status: "succeeded",
+      invocationSource: "timer",
+    }));
+    // A fresh Response per call: a single instance has a one-shot body, so the
+    // second request would fail on an already-consumed stream.
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await createProgram().parseAsync([
+      "run", "list",
+      "--api-base", "http://localhost:3100",
+      "--api-key", "board-token",
+      "--company-id", COMPANY_ID,
+    ], { from: "user" });
+
+    // An unqualified GET on this route applies no LIMIT server-side, so the
+    // default must carry one — and a full page must say so rather than looking
+    // like the whole corpus.
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `http://localhost:3100/api/companies/${COMPANY_ID}/heartbeat-runs?limit=200`,
+    );
+    expect(errorSpy.mock.calls.flat().join(" ")).toContain("more may exist");
+
+    errorSpy.mockClear();
+    await createProgram().parseAsync([
+      "run", "list",
+      "--api-base", "http://localhost:3100",
+      "--api-key", "board-token",
+      "--company-id", COMPANY_ID,
+      "--all",
+    ], { from: "user" });
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      `http://localhost:3100/api/companies/${COMPANY_ID}/heartbeat-runs`,
+    );
+    // --all is the documented escape hatch, so it must not warn about a bound
+    // it did not apply.
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("more may exist");
+  });
+
   it("supports run events, issues, workspace operations, and watchdog decisions", async () => {
     const fetchMock = vi
       .fn()
