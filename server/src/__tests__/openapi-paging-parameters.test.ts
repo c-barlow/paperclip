@@ -219,6 +219,96 @@ describe("paged collections declare their query parameters", () => {
     },
   );
 
+  /**
+   * Numbers that an operation description states, where the bound is a NAMED
+   * CONSTANT in another module.
+   *
+   * ⛔ The `boundSource` pin above is not enough for these. It proves the clamp
+   * expression still exists, and for a clamp written with a literal — such as
+   * `Math.max(1, Math.min(limit, 200))` — the value is inside the pinned text,
+   * so drift breaks the pin. But `Math.min(ISSUE_LIST_MAX_LIMIT, ...)` keeps
+   * matching after the constant changes from 1000 to anything else, and the
+   * published "CLAMPED to 1000" would go stale while the suite stayed green.
+   *
+   * So these read the constant's value out of its own module and require the
+   * same number in the published description. The spec cannot import the
+   * constants: importing from `services/issues.js` into `routes/openapi.ts`
+   * breaks route suites that mock that module partially.
+   */
+  const DOCUMENTED_CONSTANTS: {
+    specPath: string;
+    file: string;
+    declaration: RegExp;
+  }[] = [
+    {
+      specPath: "/api/companies/{companyId}/issues",
+      file: "services/issues.ts",
+      declaration: /export const ISSUE_LIST_MAX_LIMIT = (\d+);/,
+    },
+    {
+      specPath: "/api/companies/{companyId}/issues",
+      file: "services/issues.ts",
+      declaration: /export const ISSUE_LIST_DEFAULT_LIMIT = (\d+);/,
+    },
+    {
+      specPath: "/api/companies/{companyId}/activity",
+      file: "services/activity.ts",
+      declaration: /const MAX_ACTIVITY_LIMIT = (\d+);/,
+    },
+    {
+      specPath: "/api/companies/{companyId}/activity",
+      file: "services/activity.ts",
+      declaration: /const DEFAULT_ACTIVITY_LIMIT = (\d+);/,
+    },
+    {
+      specPath: "/api/heartbeat-runs/{runId}/log",
+      file: "routes/agents.ts",
+      declaration: /const RUN_LOG_DEFAULT_LIMIT_BYTES = ([\d_]+);/,
+    },
+    {
+      specPath: "/api/workspace-operations/{operationId}/log",
+      file: "routes/agents.ts",
+      declaration: /const RUN_LOG_DEFAULT_LIMIT_BYTES = ([\d_]+);/,
+    },
+  ];
+
+  it.each(DOCUMENTED_CONSTANTS)(
+    "$specPath states the live value of $declaration",
+    ({ specPath, file, declaration }) => {
+      const match = declaration.exec(source(file));
+      // A pin that cannot find its subject must fail, never pass quietly.
+      expect(match, `${declaration} no longer matches ${file}`).not.toBeNull();
+      const value = Number(match![1]!.replace(/_/g, ""));
+      expect(Number.isFinite(value)).toBe(true);
+      const description: string = spec.paths[specPath].get.description ?? "";
+      expect(
+        description.includes(String(value)),
+        `${specPath} description does not state ${value}; the constant in ` +
+        `${file} moved and the published clamp is now stale`,
+      ).toBe(true);
+    },
+  );
+
+  it("the byte ceiling stated for the log routes matches its constant", () => {
+    // `RUN_LOG_MAX_LIMIT_BYTES` is written as an expression, not a literal, so
+    // it is evaluated rather than pattern-matched.
+    const match = /const RUN_LOG_MAX_LIMIT_BYTES = (\d+) \* (\d+);/.exec(
+      source("routes/agents.ts"),
+    );
+    expect(match, "RUN_LOG_MAX_LIMIT_BYTES declaration moved").not.toBeNull();
+    const ceiling = Number(match![1]) * Number(match![2]);
+    expect(ceiling).toBeGreaterThan(0);
+    for (const specPath of [
+      "/api/heartbeat-runs/{runId}/log",
+      "/api/workspace-operations/{operationId}/log",
+    ]) {
+      expect(
+        (spec.paths[specPath].get.description ?? "").includes(String(ceiling)),
+        `${specPath} does not state the ${ceiling} byte ceiling`,
+      ).toBe(true);
+    }
+  });
+
   it("declares no query parameter as required except the count route's attention", () => {
     const required: string[] = [];
     for (const { specPath } of PAGED_ROUTES) {

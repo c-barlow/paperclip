@@ -4029,7 +4029,8 @@ const issueListQuerySchema = z.object({
     .describe("Rows to skip. A non-integer or a negative value returns 400."),
   afterId: stringQuery(
     "Keyset paging cursor: return rows after this issue UUID. Requires " +
-    "`sortField=id`, `sortDir=asc` and no `offset`; any other combination returns 422.",
+    "`sortField=id`, `sortDir=asc`, and `offset` either absent or 0; any other " +
+    "combination returns 422. An explicit `offset=0` is accepted.",
   ),
   sortField: z
     .enum(["updated", "id"])
@@ -4099,8 +4100,10 @@ registry.registerPath({
     "it is not refused, and the response does not report that rows were dropped. " +
     "A caller that needs the whole collection must page with `offset` or `afterId` " +
     "until a short page arrives. `afterId` is keyset paging and requires " +
-    "`sortField=id`, `sortDir=asc` and no `offset`; any other combination returns 422. " +
-    "`sortField=id` with `attention=blocked` also returns 422.",
+    "`sortField=id`, `sortDir=asc`, and `offset` either absent or 0; any other " +
+    "combination returns 422, so an explicit `offset=0` is accepted but paging " +
+    "by `offset` and by `afterId` together is not. `sortField=id` with " +
+    "`attention=blocked` also returns 422.",
   request: {
     params: z.object({ companyId: z.string() }),
     query: issueListQuerySchema,
