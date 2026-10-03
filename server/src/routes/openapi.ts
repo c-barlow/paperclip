@@ -4052,18 +4052,27 @@ const issueCommentCursorSchema = z.object({
     .int()
     .describe(
       "Every comment row on this issue, counted with no visibility filter and " +
-        "no page limit. Compare a full read against it: fewer rows than " +
-        "`totalComments` means the read was truncated. MORE rows is not an " +
-        "error — the anchor and the read are two requests, so a comment can " +
-        "land between them. Read the anchor first and treat only " +
-        "`rows < totalComments` as truncation.",
+        "no page limit — so for a reader allowed to see the issue at all, it " +
+        "never overstates the rows they can read.\n\n" +
+        "The anchor and the thread are two requests, so neither direction of " +
+        "the comparison is conclusive by itself. More rows than " +
+        "`totalComments` means a comment arrived between the two reads, and is " +
+        "benign. Fewer rows means EITHER the read was truncated OR a comment " +
+        "was deleted between the two reads — comment deletion removes the row, " +
+        "so it lowers this count. Read the anchor first; on a shortfall, re-read " +
+        "it. A total that has fallen to match the rows already read is a " +
+        "concurrent deletion; a shortfall that persists against a fresh total " +
+        "is truncation.",
     ),
   latestCommentId: z
     .string()
     .nullable()
     .describe(
-      "Newest comment on the issue, or null when it has none. Usable directly " +
-        "as the `after` anchor for a later incremental read.",
+      "Newest comment on the issue, or null when it has none. To read what " +
+        "arrives after it, pass it as `after` TOGETHER WITH `order=asc`: the " +
+        "default `desc` order walks the cursor backwards into older comments, " +
+        "so this ID with the default order returns history and never a new " +
+        "arrival.",
     ),
   latestCommentAt: z
     .string()
@@ -4391,9 +4400,11 @@ registry.registerPath({
         .string()
         .describe(
           "Keyset cursor: the ID of the last comment already read. Returns " +
-            "the rows after it in the requested order. Takes precedence over " +
-            "`afterCommentId`. An unknown or non-UUID value yields `[]` " +
-            "rather than an error.",
+            "the rows that follow it in the direction `order` selects — newer " +
+            "under `asc`, older under `desc` — so the pair, not `after` " +
+            "alone, decides whether you page into history or into new " +
+            "arrivals. Takes precedence over `afterCommentId`. An unknown or " +
+            "non-UUID value yields `[]` rather than an error.",
         )
         .optional(),
       afterCommentId: z
@@ -4407,8 +4418,10 @@ registry.registerPath({
         .enum(["asc", "desc"])
         .optional()
         .describe(
-          "Sort direction over `(createdAt, id)`. Defaults to `desc` " +
-            "(newest first); any value other than `asc` is read as `desc`.",
+          "Sort direction over `(createdAt, id)`; defaults to `desc`, newest " +
+            "first. The direction also decides which way `after` walks: pair " +
+            "`order=asc` with `after` to read FORWARD into comments newer than " +
+            "the anchor, because `desc` walks backwards into older ones.",
         ),
     }),
   },
