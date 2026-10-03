@@ -4382,10 +4382,38 @@ registry.registerPath({
   request: {
     params: z.object({ id: z.string() }),
     query: z.object({
+      // No value RANGE is declared on this parameter, and the omission is not
+      // about where a constant lives. This handler never rejects a `limit`: it
+      // reads the query value, and anything that is not a finite number above
+      // zero becomes `null`, which means NO limit. So `0`, a negative value
+      // and `abc` are all accepted and all return the whole thread. A
+      // `minimum` would declare those requests invalid while the server
+      // honours them, and a `maximum` would declare an over-cap request
+      // invalid when it in fact succeeds with a clamped page. A range in a
+      // parameter schema is what a contract validator and a generated client
+      // enforce, so either one publishes a rejection that does not exist.
+      //
+      // The sibling artifacts route does publish `minimum`/`maximum`, and the
+      // difference is instructive rather than inconsistent: its query schema
+      // IS the parser the route runs, so a value outside the range is a 400
+      // there. Here the bound is a clamp applied after parsing, and it is
+      // applied twice — once in the route module and again in the service,
+      // from two private literals that agree only by authorship. There is no
+      // single authority for the spec to derive from even if it wanted one.
+      //
+      // `type: integer` is kept, and it is an overclaim worth naming: a
+      // fractional value is floored rather than refused. Type states the shape
+      // a caller should serialize, which every parameter here declares; range
+      // states what the server will refuse, and this one refuses nothing.
+      //
+      // ⚠️ The mirror of the `order` note below. There, the server's leniency
+      // is an incidental fallback, so the contract keeps the enum and declines
+      // to promise it. Here the leniency changes the RESULT — an unlimited
+      // read instead of a page — which is the hazard this route's contract
+      // exists to describe, so it is published and the constraint is dropped.
       limit: z.coerce
         .number()
         .int()
-        .positive()
         .optional()
         .describe(
           "Maximum rows to return; omit it to read the whole thread " +
@@ -4393,10 +4421,13 @@ registry.registerPath({
             "server's maximum comment page size, and the clamped page is " +
             "returned with no header or field recording that it happened — so " +
             "a page shorter than the requested `limit` is never proof the " +
-            "thread ended. No `maximum` is published here on purpose: the " +
-            "bound is a server constant, and a number restated in the " +
-            "contract would keep reading as authoritative after the server " +
-            "changed it.",
+            "thread ended.\n\n" +
+            "No value range is published here, because this parameter is " +
+            "never validated. A zero, a negative value and a non-numeric " +
+            "value are all accepted and all mean NO limit, returning the " +
+            "whole thread — more rows than asked for, not fewer. A " +
+            "fractional value is floored. Send a positive whole number or " +
+            "omit the parameter.",
         ),
       // `after` describes BEFORE `.optional()` while its siblings describe
       // after it, on purpose: `.describe()` attaches to whichever schema it is
