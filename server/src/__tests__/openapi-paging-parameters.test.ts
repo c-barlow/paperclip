@@ -391,20 +391,39 @@ describe("paged collections declare their query parameters", () => {
       );
     });
 
-    it("both operations describe the flag as having no effect", () => {
+    it("both operations warn in the PUBLISHED document, not just in source", () => {
+      // ⛔ This assertion used to read the source text of the `.describe()`
+      // call, and that was the wrong subject. `parametersFromSchema` emits no
+      // parameter `description`, so a warning written only with `.describe()`
+      // reaches nobody: the document would declare the flag and say nothing
+      // about it, which is the precise failure this declaration exists to
+      // prevent. Assert what a reader receives.
       for (const specPath of [
         "/api/companies/{companyId}/issues",
         "/api/companies/{companyId}/issues/count",
       ]) {
         const parameter = queryParameters(specPath)[READ_BUT_DISCARDED];
         expect(parameter, `${specPath} must still declare the key`).toBeDefined();
+        const description: string = spec.paths[specPath].get.description ?? "";
+        expect(
+          description,
+          `${specPath} declares ${READ_BUT_DISCARDED} without warning a reader it is inert`,
+        ).toContain(READ_BUT_DISCARDED);
+        expect(description).toContain("NO EFFECT");
+        // The parameter that actually works must be named alongside it, or the
+        // warning tells a caller what fails and not what to do instead.
+        expect(description).toContain(HONOURED_SIBLING);
       }
-      // The prose lives on the parameter via `.describe()`, which the current
-      // converter drops, so assert the Zod-level description instead of the
-      // emitted document. This is the one claim here the document cannot carry.
-      expect(source("routes/openapi.ts")).toContain(
-        "Accepted but has NO EFFECT. Routine executions are included by default.",
-      );
+    });
+
+    it("no parameter carries prose the document silently drops", () => {
+      // The general form of the defect above: `.describe()` is invisible today,
+      // so any FACT a caller needs must also appear in the operation
+      // description. Checked for the inertness and conditional-discard claims,
+      // which are the ones a caller cannot discover by experiment.
+      const listDescription: string =
+        spec.paths["/api/companies/{companyId}/issues"].get.description ?? "";
+      expect(listDescription).toContain("ignored when `originKind`");
     });
 
     it("the blocked path's inert parameters are named in the list description", () => {

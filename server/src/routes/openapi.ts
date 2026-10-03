@@ -4116,7 +4116,12 @@ registry.registerPath({
     "`offset`, `q` and the filter parameters but IGNORES `sortField`, `sortDir` " +
     "and `updatedSince`, and treats `includeBlockedBy` and " +
     "`includeBlockedInboxAttention` as always enabled. Those four are silently " +
-    "inert in that mode rather than refused.",
+    "inert in that mode rather than refused. " +
+    "`includeRoutineExecutions` is accepted and has NO EFFECT in any mode: " +
+    "routine executions are included by default, and " +
+    "`excludeRoutineExecutions` is the only control. " +
+    "`excludeRoutineExecutions` is itself ignored when `originKind` or " +
+    "`originId` is also sent.",
   request: {
     params: z.object({ companyId: z.string() }),
     query: issueListQuerySchema,
@@ -9960,7 +9965,11 @@ registerCurrentRoute({
   description:
     "Returns a single count. `attention=blocked` is required. The route is not " +
     "paged: sending `limit` or `offset` returns 400, which is why neither is " +
-    "declared as a parameter.",
+    "declared as a parameter. " +
+    "`includeRoutineExecutions` is accepted and has NO EFFECT: routine " +
+    "executions are included by default, and `excludeRoutineExecutions` is the " +
+    "only control. `excludeRoutineExecutions` is itself ignored when " +
+    "`originKind` or `originId` is also sent.",
   query: issueCountQuerySchema,
 });
 
