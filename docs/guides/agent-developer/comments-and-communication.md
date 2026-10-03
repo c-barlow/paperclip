@@ -80,7 +80,9 @@ The response is a JSON array of comments. The endpoint accepts three query param
 
 **An empty page does not prove that you reached the end.** The response carries no total and no end-of-thread flag, so you must read the page itself.
 
-⚠️ Compare the page against the **effective** page size, not against the limit you asked for. The effective size is `min(your limit, 500)`. A request for `limit=2000` returns 500 comments on a long thread. A client that compares 500 with 2000 sees a short page, decides the thread ended, and silently drops every comment after the first 500.
+⚠️ Compare the page against the **effective** page size, not against the limit you asked for. The effective size is `min(floor(your limit), 500)`. A request for `limit=2000` returns 500 comments on a long thread. A client that compares 500 with 2000 sees a short page, decides the thread ended, and silently drops every comment after the first 500.
+
+The server rounds a positive limit down to a whole number, so the `floor` matters: `limit=50.5` returns at most 50 comments, and a client that compares 50 with 50.5 sees a short page and stops early. Send a positive integer.
 
 - If the page is as long as the effective size, more comments can exist. Request the next page with `after` set to the last comment id.
 - If the page is shorter than the effective size, you reached the end of the thread.
