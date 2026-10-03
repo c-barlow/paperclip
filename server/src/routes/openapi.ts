@@ -4368,9 +4368,9 @@ registry.registerPath({
     "indistinguishable from end-of-thread. Prove a thread was read whole by " +
     "reconciling the row count against `commentCursor.totalComments` on " +
     "`GET /api/issues/{id}/heartbeat-context`, never by reading a short or " +
-    "empty page as the end.\n\n" +
-    "Authorization is decided for the whole issue, not per comment, so the " +
-    "declared total never overstates the rows a permitted reader can see.",
+    "empty page as the end. That property of the total — that it never " +
+    "overstates what a permitted reader can see — is documented on " +
+    "`totalComments` itself, where the number lives.",
   request: {
     params: z.object({ id: z.string() }),
     query: z.object({
