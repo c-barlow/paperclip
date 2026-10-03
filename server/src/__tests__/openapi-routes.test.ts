@@ -1066,16 +1066,25 @@ describe("issue comment completeness OpenAPI contract", () => {
       nullable: true,
     });
 
-    // The anchor and the read are two requests, so NEITHER direction of the
-    // comparison is conclusive alone, and the contract has to say so for both:
-    // a longer read is a concurrent arrival, and a shorter one is truncation
-    // OR a concurrent deletion, because `removeComment` deletes the row and so
-    // lowers this count. Pinning both words keeps a later edit from
-    // re-publishing the one-sided rule.
+    // Three claims this field has to carry, each of which a previous revision
+    // of this contract got wrong in a different direction:
+    //
+    //  1. Ordinary deletion TOMBSTONES the row, so it does not lower the
+    //     count. Only the legacy queued-comment path hard-deletes. Stating
+    //     "deletion removes the row" overcounts the race by a wide margin.
+    //  2. The anchor and the read are two requests, so a disagreement does not
+    //     identify its own cause.
+    //  3. Re-reading the count does NOT discriminate the causes. A 501-row
+    //     thread read at `limit=500` can show a fresh total of 500 that
+    //     matches the rows read while one comment stays unseen. So the count
+    //     corroborates a read and never proves one complete.
     const totalProse = cursor.properties.totalComments.description;
-    expect(totalProse).toContain("arrived between the two reads");
-    expect(totalProse).toContain("deleted between the two reads");
-    expect(totalProse).toContain("re-read");
+    expect(totalProse).toContain("tombstone");
+    expect(totalProse).toContain("arrived between them");
+    expect(totalProse).toContain("hard-deleted");
+    expect(totalProse).toContain("does not separate those cases");
+    expect(totalProse).toContain("never as a verdict");
+    expect(totalProse).toContain("cannot prove one complete");
 
     // `latestCommentId` is only an incremental anchor when paired with
     // `order=asc`; under the default `desc` the cursor walks backwards, so the

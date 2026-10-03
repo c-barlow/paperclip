@@ -4052,17 +4052,23 @@ const issueCommentCursorSchema = z.object({
     .int()
     .describe(
       "Every comment row on this issue, counted with no visibility filter and " +
-        "no page limit — so for a reader allowed to see the issue at all, it " +
-        "never overstates the rows they can read.\n\n" +
-        "The anchor and the thread are two requests, so neither direction of " +
-        "the comparison is conclusive by itself. More rows than " +
-        "`totalComments` means a comment arrived between the two reads, and is " +
-        "benign. Fewer rows means EITHER the read was truncated OR a comment " +
-        "was deleted between the two reads — comment deletion removes the row, " +
-        "so it lowers this count. Read the anchor first; on a shortfall, re-read " +
-        "it. A total that has fallen to match the rows already read is a " +
-        "concurrent deletion; a shortfall that persists against a fresh total " +
-        "is truncation.",
+        "no page limit. Deleting a comment normally writes a tombstone and " +
+        "keeps the row, so this count does not drop and the page still returns " +
+        "that row with an empty body. For a reader allowed to see the issue at " +
+        "all, the count therefore never overstates the rows they can read.\n\n" +
+        "Use this count to CORROBORATE a read. It cannot prove one complete, " +
+        "and completeness comes from the request instead: omit `limit` and the " +
+        "response holds the whole thread, or page with `limit` and treat a page " +
+        "as long as `limit` as a signal that more rows may follow.\n\n" +
+        "The anchor and the thread are two separate requests, so a disagreement " +
+        "does not identify its own cause. More rows than `totalComments` means " +
+        "a comment arrived between them, and is benign. Fewer rows means the " +
+        "read was truncated, or a legacy queued comment was hard-deleted " +
+        "between them — the one path that does drop a row. Re-reading the count " +
+        "does not separate those cases: a 501-row thread read at `limit=500` " +
+        "can show a fresh total of 500 that matches the rows read while one " +
+        "comment stays unseen. Treat a disagreement as a reason to page again " +
+        "from a known anchor, never as a verdict.",
     ),
   latestCommentId: z
     .string()
@@ -4365,12 +4371,14 @@ registry.registerPath({
     "An empty array is NOT evidence that the thread is exhausted. The same " +
     "`[]` comes back when `after` is not a UUID, and when it is a UUID that " +
     "is not a comment of this issue — a mistyped or foreign anchor is " +
-    "indistinguishable from end-of-thread. Prove a thread was read whole by " +
-    "reconciling the row count against `commentCursor.totalComments` on " +
-    "`GET /api/issues/{id}/heartbeat-context`, never by reading a short or " +
-    "empty page as the end. That property of the total — that it never " +
-    "overstates what a permitted reader can see — is documented on " +
-    "`totalComments` itself, where the number lives.",
+    "indistinguishable from end-of-thread.\n\n" +
+    "So read a thread whole by omitting `limit`, which returns every row in " +
+    "one response. If you must page, take each anchor from a previous page and " +
+    "stop when a page comes back shorter than `limit`. Then corroborate the " +
+    "result against `commentCursor.totalComments` on " +
+    "`GET /api/issues/{id}/heartbeat-context`; that field documents what the " +
+    "comparison can and cannot establish, and why a count alone never proves a " +
+    "read complete.",
   request: {
     params: z.object({ id: z.string() }),
     query: z.object({
