@@ -4356,9 +4356,9 @@ registry.registerPath({
   tags: ["issues"],
   summary: "List issue comments",
   description:
-    "Returns a JSON array of comment rows. There is no envelope, no total and " +
-    "no `nextCursor`, so the response carries nothing that says whether more " +
-    "rows exist.\n\n" +
+    "Returns a JSON array of comment rows. The response has no envelope, no " +
+    "total and no `nextCursor`, so it cannot by itself tell a caller whether " +
+    "more rows exist.\n\n" +
     "Paging is a keyset cursor over `(createdAt, id)`: pass a comment ID as " +
     "`after` to get the rows following it in the requested order. Omitting " +
     "`limit` reads the whole thread.\n\n" +
