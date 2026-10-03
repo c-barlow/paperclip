@@ -957,3 +957,151 @@ describe("heartbeat run ID OpenAPI contract", () => {
     expect(checked).toBe(12);
   });
 });
+
+// Reading a comment thread completely is a three-part mechanism — a page limit
+// that clamps, a keyset cursor whose empty page is ambiguous, and a total that
+// lives on a sibling route — and the document used to declare none of it. Both
+// routes published `{"type":"object","additionalProperties":{}}`, which codegen
+// turns into `Record<string, unknown>`: a type that reads as a contract and
+// carries nothing. Three separate investigations consulted it and came away
+// with a wrong conclusion about the API.
+describe("issue comment completeness OpenAPI contract", () => {
+  const paramsOf = (operation: Record<string, any>) =>
+    new Map<string, any>(
+      (operation.parameters ?? []).map((param: any) => [param.name, param]),
+    );
+
+  it("declares the comment paging parameters", () => {
+    const { spec } = loadSpecRoutes();
+    const operation = spec.paths["/api/issues/{id}/comments"].get;
+    const params = paramsOf(operation);
+
+    expect([...params.keys()].sort()).toEqual([
+      "after",
+      "afterCommentId",
+      "id",
+      "limit",
+      "order",
+    ]);
+    for (const name of ["limit", "after", "afterCommentId", "order"]) {
+      expect(params.get(name).in, name).toBe("query");
+      expect(params.get(name).required, name).toBe(false);
+      expect(params.get(name).description, name).toEqual(expect.any(String));
+    }
+    expect(params.get("limit").schema.type).toBe("integer");
+    expect(params.get("order").schema.enum).toEqual(["asc", "desc"]);
+
+    // The clamp is published as a mechanism, never as a number. A bound
+    // restated in the contract keeps reading as authoritative after the server
+    // constant moves, and the constant cannot be imported here: pulling one
+    // into this module turned 81 tests in two unrelated route suites red,
+    // because `openapi.ts` is reachable from `routes/agents.ts` and those
+    // suites mock `services/issues.js` with a partial module.
+    expect(params.get("limit").schema.maximum).toBeUndefined();
+    expect(params.get("limit").description).toContain("clamped");
+    expect(params.get("limit").description).not.toMatch(/\d{3,}/);
+  });
+
+  it("names the empty-page hazard and the reconciliation that settles it", () => {
+    const { spec } = loadSpecRoutes();
+    const operation = spec.paths["/api/issues/{id}/comments"].get;
+    // An empty page is returned for a non-UUID anchor and for a UUID that is
+    // not a comment of this issue, byte-identical to end-of-thread. So a
+    // termination test cannot prove a thread was read whole, and the contract
+    // has to say where the proof actually comes from.
+    expect(operation.description).toContain("not a UUID");
+    expect(operation.description).toContain("commentCursor.totalComments");
+    expect(operation.description).toContain("heartbeat-context");
+  });
+
+  it("declares the comments response as an array of rows", () => {
+    const { spec } = loadSpecRoutes();
+    const schema =
+      spec.paths["/api/issues/{id}/comments"].get.responses["200"].content[
+        "application/json"
+      ].schema;
+
+    // The route returns a bare JSON array; the old declaration claimed an
+    // object, so the published type was not merely vague but wrong.
+    expect(schema.type).toBe("array");
+    expect(schema.items.properties.id).toMatchObject({
+      type: "string",
+      format: "uuid",
+    });
+    expect(schema.items.required).toContain("id");
+    expect(schema.items.properties.id.description).toContain("`after`");
+    // A row carries columns this schema does not describe, so it must stay
+    // open: `additionalProperties: false` here would publish a false closure.
+    expect(schema.items.additionalProperties).toBeUndefined();
+  });
+
+  it("publishes commentCursor as the API's only declared comment total", () => {
+    const { spec } = loadSpecRoutes();
+    const operation = spec.paths["/api/issues/{id}/heartbeat-context"].get;
+    const schema =
+      operation.responses["200"].content["application/json"].schema;
+    const cursor = schema.properties.commentCursor;
+
+    expect(schema.required).toContain("commentCursor");
+    expect([...cursor.required].sort()).toEqual([
+      "latestCommentAt",
+      "latestCommentId",
+      "totalComments",
+    ]);
+    expect(cursor.properties.totalComments.type).toBe("integer");
+    expect(cursor.properties.latestCommentId).toMatchObject({
+      type: "string",
+      nullable: true,
+    });
+    expect(cursor.properties.latestCommentAt).toMatchObject({
+      type: "string",
+      format: "date-time",
+      nullable: true,
+    });
+
+    // The comparison is asymmetric on purpose: the anchor and the read are two
+    // requests, so a comment arriving between them makes the read longer than
+    // the total with nothing wrong. Only a short read is truncation.
+    expect(cursor.properties.totalComments.description).toContain(
+      "rows < totalComments",
+    );
+
+    // This schema describes one field of a much larger response. It has to say
+    // so, or a reader takes the declared key for the whole contract -- the
+    // same mistake in the other direction.
+    expect(operation.description).toContain("not evidence");
+    expect(schema.additionalProperties).toBeUndefined();
+
+    const params = paramsOf(operation);
+    expect(params.get("wakeCommentId").in).toBe("query");
+    expect(params.get("wakeCommentId").description).toContain("wakeComment");
+  });
+
+  it("publishes `.describe()` prose on parameters and nested properties", () => {
+    const { spec } = loadSpecRoutes();
+
+    // Control for the four tests above: descriptions reach the document
+    // generally, not through anything special-cased for the comment routes.
+    // Zod 4 keeps `.describe()` text in `z.globalRegistry` rather than on
+    // `_def`, and the converter read neither -- so every description already
+    // written in a request or response schema was dropped on the way out.
+    const runId = (
+      spec.paths["/api/heartbeat-runs/{runId}"].get.parameters ?? []
+    ).find((param: any) => param.name === "runId");
+    expect(runId.description).toContain("malformed values return 400");
+    const search =
+      spec.paths["/runtime-tools/connections/search"].post.requestBody.content[
+        "application/json"
+      ].schema;
+    expect(search.properties.retryProviderChoice.description).toContain(
+      "explicitly asks to reconsider",
+    );
+
+    // `.describe()` binds to whichever schema it was called on, so the two
+    // orderings resolve through different branches. `after` describes before
+    // `.optional()` and `limit` after it, which keeps a live example of each.
+    const params = paramsOf(spec.paths["/api/issues/{id}/comments"].get);
+    expect(params.get("after").description).toContain("Keyset cursor");
+    expect(params.get("limit").description).toContain("clamped");
+  });
+});
