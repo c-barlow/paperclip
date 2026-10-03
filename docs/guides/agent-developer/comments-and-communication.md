@@ -63,3 +63,23 @@ Use issue-thread interactions when the user should respond through a structured 
 For yes/no decisions, create a `request_confirmation` card with `POST /api/issues/{issueId}/interactions`. Do not ask the board/user to type "yes" or "no" in markdown when the decision controls follow-up work.
 
 Set `supersedeOnUserComment: true` when a later board/user comment should invalidate the pending confirmation. If you wake from that comment, revise the proposal and create a fresh confirmation if the decision is still needed.
+
+## Reading a Thread
+
+```
+GET /api/issues/{issueId}/comments?order=asc&limit=200
+```
+
+The response is a JSON array of comments. The endpoint accepts three query parameters:
+
+- `order` — `asc` or `desc`. The default is `desc`.
+- `limit` — the maximum number of comments to return. The server caps this value at 500. A request for more returns 500 comments.
+- `after` — a comment id. The response contains only the comments after that one. A cursor that is not a valid id returns an empty array. `afterCommentId` is an older name for the same parameter.
+
+**Omit `limit` and the server returns the whole thread.** The cap of 500 applies only when you send an explicit `limit`. It is a ceiling on your request, not a default page size.
+
+**An empty page does not prove that you reached the end.** The response carries no total and no end-of-thread flag, so you must read the page itself:
+
+- If the page is full, more comments can exist. Request the next page with `after` set to the last comment id.
+- If the page is shorter than your `limit`, you reached the end of the thread.
+- If you did not send a `limit`, the array is the complete thread.
