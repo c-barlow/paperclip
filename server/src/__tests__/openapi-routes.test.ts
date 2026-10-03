@@ -998,15 +998,49 @@ describe("issue comment completeness OpenAPI contract", () => {
     expect(params.get("order").description).not.toContain("other than");
     expect(params.get("order").description).toContain("asc");
 
-    // The clamp is published as a mechanism, never as a number. A bound
-    // restated in the contract keeps reading as authoritative after the server
-    // constant moves, and the constant cannot be imported here: pulling one
-    // into this module turned 81 tests in two unrelated route suites red,
-    // because `openapi.ts` is reachable from `routes/agents.ts` and those
-    // suites mock `services/issues.js` with a partial module.
+    // The clamp is published as a mechanism, never as a number — and NEITHER
+    // END of the range is published, which is the part that needs a test.
+    //
+    // CORRECTED: an earlier version of this comment said the bound is omitted
+    // because "the constant cannot be imported here". That reason is too
+    // strong. Importing from `services/issues.js` is what turned 81 tests in
+    // two unrelated route suites red (`openapi.ts` is reachable from
+    // `routes/agents.ts`, and those suites mock that module partially), but
+    // the sibling artifacts route publishes `maximum: 100` from a constant in
+    // `@paperclipai/shared`, which no server suite mocks. An import route
+    // exists; it is the DECLARATION that would be wrong.
+    //
+    // This handler validates nothing. A `limit` that is not a finite number
+    // above zero becomes `null`, meaning NO limit, so `0`, `-5` and `abc` are
+    // accepted and return the whole thread. A published range is what a
+    // contract validator and a generated client enforce, so `minimum` would
+    // reject requests the server honours and `maximum` would reject an
+    // over-cap request that in fact succeeds with a clamped page. The
+    // artifacts route may publish its range because its query schema is the
+    // parser; this one's bound is a post-parse clamp.
     expect(params.get("limit").schema.maximum).toBeUndefined();
+    expect(params.get("limit").schema.minimum).toBeUndefined();
+    expect(params.get("limit").schema.exclusiveMinimum).toBeUndefined();
     expect(params.get("limit").description).toContain("clamped");
     expect(params.get("limit").description).not.toMatch(/\d{3,}/);
+    // The leniency has to be stated, or dropping the constraint just removes
+    // information: an unlimited read is the surprising outcome a caller needs
+    // warned about, and it is what `limit=0` returns.
+    expect(params.get("limit").description).toMatch(/zero|negative/i);
+    expect(params.get("limit").description).toContain("NO limit");
+  });
+
+  // A control for the two pins above: the sibling route that CAN publish a
+  // range still does. Without it, `minimum`/`maximum` being undefined is also
+  // what a converter that stopped emitting ranges at all would produce, and
+  // both pins would pass while saying nothing about this route's choice.
+  it("still publishes a range where the query schema is the parser", () => {
+    const { spec } = loadSpecRoutes();
+    const params = paramsOf(
+      spec.paths["/api/companies/{companyId}/artifacts"].get,
+    );
+    expect(params.get("limit").schema.minimum).toBe(1);
+    expect(params.get("limit").schema.maximum).toBeGreaterThan(0);
   });
 
   it("names the empty-page hazard and the reconciliation that settles it", () => {
