@@ -1055,6 +1055,52 @@ describe("issue comment completeness OpenAPI contract", () => {
     expect(operation.description).toContain("heartbeat-context");
   });
 
+  it("agrees with itself about the end-of-page signal", () => {
+    const { spec } = loadSpecRoutes();
+    const operation = spec.paths["/api/issues/{id}/comments"].get;
+    const limitProse = paramsOf(operation).get("limit").description;
+    const cursor =
+      spec.paths["/api/issues/{id}/heartbeat-context"].get.responses["200"]
+        .content["application/json"].schema.properties.commentCursor;
+    const totalProse = cursor.properties.totalComments.description;
+
+    // Three fields describe termination: this route, its `limit` parameter,
+    // and `totalComments`. An earlier revision had the route saying "stop when
+    // a page comes back shorter than `limit`" eighteen lines from the
+    // parameter warning that a short page is "never proof the thread ended" —
+    // each field read correctly alone and they contradicted each other. The
+    // clamp is why: a `limit` above the server's cap returns a short page
+    // while rows remain. So all three are pinned on the empty-page rule, and
+    // the retired instruction is pinned absent.
+    expect(operation.description).toContain("Do NOT stop on a short page");
+    expect(operation.description).not.toContain("shorter than `limit`");
+    for (const [where, prose] of [
+      ["route", operation.description],
+      ["totalComments", totalProse],
+    ] as const) {
+      expect(prose, where).toMatch(/empty/i);
+      expect(prose, where).toMatch(/clamp/i);
+    }
+    expect(limitProse).toContain("clamped");
+    expect(limitProse).toContain("never proof the thread ended");
+
+    // An empty page is terminal ONLY for an anchor taken from a previous page.
+    // That is what separates it from the unknown-anchor case in the test
+    // above, and omitting the distinction makes the two statements look like a
+    // contradiction rather than a condition.
+    expect(operation.description).toContain("previous page");
+
+    // The leniency the contract publishes is bounded by what a conforming
+    // client can send. Zero and negatives are integers, so they are
+    // documented; a non-numeric `limit` behaves the same way server-side but
+    // `type: integer` means a generated client or validator rejects it first,
+    // so documenting it would describe a request this contract's readers
+    // cannot make. Same defect as the retired `order` leniency clause.
+    expect(paramsOf(operation).get("limit").schema.type).toBe("integer");
+    expect(limitProse).not.toMatch(/non-numeric/i);
+    expect(limitProse).toMatch(/negative/i);
+  });
+
   it("declares the comments response as an array of rows", () => {
     const { spec } = loadSpecRoutes();
     const schema =

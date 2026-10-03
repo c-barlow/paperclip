@@ -4058,8 +4058,10 @@ const issueCommentCursorSchema = z.object({
         "all, the count therefore never overstates the rows they can read.\n\n" +
         "Use this count to CORROBORATE a read. It cannot prove one complete, " +
         "and completeness comes from the request instead: omit `limit` and the " +
-        "response holds the whole thread, or page with `limit` and treat a page " +
-        "as long as `limit` as a signal that more rows may follow.\n\n" +
+        "response holds the whole thread, or page with `limit` and keep going " +
+        "until a page comes back empty. A page shorter than the `limit` you " +
+        "sent is not an end signal, because a `limit` above the server's cap " +
+        "is clamped.\n\n" +
         "The anchor and the thread are two separate requests, so a disagreement " +
         "does not identify its own cause. More rows than `totalComments` means " +
         "a comment arrived between them, and is benign. Fewer rows means the " +
@@ -4374,8 +4376,14 @@ registry.registerPath({
     "indistinguishable from end-of-thread.\n\n" +
     "So read a thread whole by omitting `limit`, which returns every row in " +
     "one response. If you must page, take each anchor from a previous page and " +
-    "stop when a page comes back shorter than `limit`. Then corroborate the " +
-    "result against `commentCursor.totalComments` on " +
+    "keep going until a request returns an empty array.\n\n" +
+    "Do NOT stop on a short page. A `limit` above the server's cap is clamped, " +
+    "so a page can be shorter than the value you sent while rows still " +
+    "remain, and the response records nothing about the clamp. An empty page " +
+    "is the only reliable end signal, and it is reliable only for an anchor " +
+    "taken from a previous page: that anchor is a real comment of this issue, " +
+    "which is what distinguishes it from the unknown-anchor case above.\n\n" +
+    "Then corroborate the result against `commentCursor.totalComments` on " +
     "`GET /api/issues/{id}/heartbeat-context`; that field documents what the " +
     "comparison can and cannot establish, and why a count alone never proves a " +
     "read complete.",
@@ -4406,11 +4414,19 @@ registry.registerPath({
       // a caller should serialize, which every parameter here declares; range
       // states what the server will refuse, and this one refuses nothing.
       //
-      // ⚠️ The mirror of the `order` note below. There, the server's leniency
-      // is an incidental fallback, so the contract keeps the enum and declines
-      // to promise it. Here the leniency changes the RESULT — an unlimited
-      // read instead of a page — which is the hazard this route's contract
-      // exists to describe, so it is published and the constraint is dropped.
+      // ⚠️ The mirror of the `order` note below, and the line between them is
+      // EXPRESSIBILITY, not importance. There, the server's leniency is an
+      // incidental fallback, so the contract keeps the enum and declines to
+      // promise it. Here the leniency changes the RESULT — an unlimited read
+      // instead of a page — so the range is dropped and the behaviour is
+      // published, but only for the values a conforming client can actually
+      // send. Zero and negatives are integers, so they are published. A
+      // non-numeric `limit` behaves the same way and is deliberately NOT
+      // published: `type: integer` means a generated client or a contract
+      // validator rejects it before the server ever sees it, so documenting it
+      // would describe a request this contract's own readers cannot make.
+      // Omitting the parameter is the expressible way to ask for no limit, and
+      // it is documented.
       limit: z.coerce
         .number()
         .int()
@@ -4423,11 +4439,11 @@ registry.registerPath({
             "a page shorter than the requested `limit` is never proof the " +
             "thread ended.\n\n" +
             "No value range is published here, because this parameter is " +
-            "never validated. A zero, a negative value and a non-numeric " +
-            "value are all accepted and all mean NO limit, returning the " +
-            "whole thread — more rows than asked for, not fewer. A " +
-            "fractional value is floored. Send a positive whole number or " +
-            "omit the parameter.",
+            "never validated. A zero or a negative value is accepted and " +
+            "means NO limit, returning the whole thread — more rows than " +
+            "asked for, not fewer. A fractional value is floored. Send a " +
+            "positive whole number, or omit the parameter to read " +
+            "everything.",
         ),
       // `after` describes BEFORE `.optional()` while its siblings describe
       // after it, on purpose: `.describe()` attaches to whichever schema it is
