@@ -990,6 +990,13 @@ describe("issue comment completeness OpenAPI contract", () => {
     }
     expect(params.get("limit").schema.type).toBe("integer");
     expect(params.get("order").schema.enum).toEqual(["asc", "desc"]);
+    // The handler tolerates an unknown `order` by falling back to `desc`, but
+    // the contract must not promise it: a generated client or a contract
+    // validator rejects what the enum excludes, so prose describing the
+    // leniency documents behaviour a conforming consumer cannot use. This pins
+    // the one phrase that promised it, not the general class.
+    expect(params.get("order").description).not.toContain("other than");
+    expect(params.get("order").description).toContain("asc");
 
     // The clamp is published as a mechanism, never as a number. A bound
     // restated in the contract keeps reading as authoritative after the server
@@ -1059,11 +1066,22 @@ describe("issue comment completeness OpenAPI contract", () => {
       nullable: true,
     });
 
-    // The comparison is asymmetric on purpose: the anchor and the read are two
-    // requests, so a comment arriving between them makes the read longer than
-    // the total with nothing wrong. Only a short read is truncation.
-    expect(cursor.properties.totalComments.description).toContain(
-      "rows < totalComments",
+    // The anchor and the read are two requests, so NEITHER direction of the
+    // comparison is conclusive alone, and the contract has to say so for both:
+    // a longer read is a concurrent arrival, and a shorter one is truncation
+    // OR a concurrent deletion, because `removeComment` deletes the row and so
+    // lowers this count. Pinning both words keeps a later edit from
+    // re-publishing the one-sided rule.
+    const totalProse = cursor.properties.totalComments.description;
+    expect(totalProse).toContain("arrived between the two reads");
+    expect(totalProse).toContain("deleted between the two reads");
+    expect(totalProse).toContain("re-read");
+
+    // `latestCommentId` is only an incremental anchor when paired with
+    // `order=asc`; under the default `desc` the cursor walks backwards, so the
+    // obvious reading of "latest comment + after" returns history forever.
+    expect(cursor.properties.latestCommentId.description).toContain(
+      "order=asc",
     );
 
     // This schema describes one field of a much larger response. It has to say
