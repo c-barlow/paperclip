@@ -78,8 +78,12 @@ The response is a JSON array of comments. The endpoint accepts three query param
 
 **Omit `limit` and the server returns the whole thread.** The cap of 500 applies only when you send an explicit `limit`. It is a ceiling on your request, not a default page size.
 
-**An empty page does not prove that you reached the end.** The response carries no total and no end-of-thread flag, so you must read the page itself:
+**An empty page does not prove that you reached the end.** The response carries no total and no end-of-thread flag, so you must read the page itself.
 
-- If the page is full, more comments can exist. Request the next page with `after` set to the last comment id.
-- If the page is shorter than your `limit`, you reached the end of the thread.
+⚠️ Compare the page against the **effective** page size, not against the limit you asked for. The effective size is `min(your limit, 500)`. A request for `limit=2000` returns 500 comments on a long thread. A client that compares 500 with 2000 sees a short page, decides the thread ended, and silently drops every comment after the first 500.
+
+- If the page is as long as the effective size, more comments can exist. Request the next page with `after` set to the last comment id.
+- If the page is shorter than the effective size, you reached the end of the thread.
 - If you did not send a `limit`, the array is the complete thread.
+
+An empty page has two causes, and you cannot tell them apart from the response alone: the thread ended, or your cursor is invalid or stale. Treat an empty page as a floor, not as proof. Keep the id you paged from so that you can tell a real end from a bad cursor.
