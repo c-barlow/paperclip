@@ -3986,11 +3986,19 @@ const issueFilterQueryShape = {
   originKind: stringQuery("Exact origin kind."),
   originKindPrefix: stringQuery("Origin kind prefix."),
   originId: stringQuery("Origin id."),
+  // ⛔ Accepted and INERT. Both handlers read this key into their filter object
+  // and no service reads it back, so the flag cannot change a response.
+  // Routine executions are included by DEFAULT; `excludeRoutineExecutions` is
+  // the only control. Declaring the key without this sentence would be the
+  // worse falsehood: a reader would infer that OMITTING it excludes them.
   includeRoutineExecutions: looseBooleanFlagQuery(
-    "`true` or `1` includes routine executions. Any other value is false.",
+    "Accepted but has NO EFFECT. Routine executions are included by default. " +
+    "Use `excludeRoutineExecutions` to remove them.",
   ),
   excludeRoutineExecutions: looseBooleanFlagQuery(
-    "`true` or `1` excludes routine executions. Any other value is false.",
+    "`true` or `1` excludes routine executions. Any other value is false. " +
+    "Ignored when `originKind` or `originId` is also sent, because those " +
+    "filters already select an origin.",
   ),
   includePluginOperations: looseBooleanFlagQuery(
     "`true` or `1` includes plugin operations. Any other value is false.",
@@ -4103,7 +4111,12 @@ registry.registerPath({
     "`sortField=id`, `sortDir=asc`, and `offset` either absent or 0; any other " +
     "combination returns 422, so an explicit `offset=0` is accepted but paging " +
     "by `offset` and by `afterId` together is not. `sortField=id` with " +
-    "`attention=blocked` also returns 422.",
+    "`attention=blocked` also returns 422. " +
+    "`attention=blocked` selects a different query path, which honours `limit`, " +
+    "`offset`, `q` and the filter parameters but IGNORES `sortField`, `sortDir` " +
+    "and `updatedSince`, and treats `includeBlockedBy` and " +
+    "`includeBlockedInboxAttention` as always enabled. Those four are silently " +
+    "inert in that mode rather than refused.",
   request: {
     params: z.object({ companyId: z.string() }),
     query: issueListQuerySchema,

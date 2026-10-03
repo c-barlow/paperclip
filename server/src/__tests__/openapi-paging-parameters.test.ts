@@ -357,6 +357,78 @@ describe("paged collections declare their query parameters", () => {
     });
   });
 
+  /**
+   * A parameter a handler READS is not necessarily one the route HONOURS.
+   *
+   * `includeRoutineExecutions` is the specimen: both issue handlers copy it
+   * from `req.query` into their filter object, the `IssueFilters` type declares
+   * it, and no service ever reads it back. So the flag cannot change any
+   * response, and routine executions are included by default regardless.
+   *
+   * The published description says so. These tests hold that description and
+   * the code in step: if somebody implements the flag, the inertness assertion
+   * fails and the "NO EFFECT" prose has to be rewritten in the same change.
+   */
+  describe("a read-but-discarded flag is declared as inert", () => {
+    const READ_BUT_DISCARDED = "includeRoutineExecutions";
+    const HONOURED_SIBLING = "excludeRoutineExecutions";
+    const reads = (key: string) =>
+      new RegExp(String.raw`filters\??\.${key}\b`, "g");
+
+    it("no service reads the flag back", () => {
+      const service = source("services/issues.ts");
+      expect(service.match(reads(READ_BUT_DISCARDED))).toBeNull();
+      // Positive control: the same pattern DOES find the sibling that works.
+      // Without it, a zero here is what a broken regex also reports.
+      expect(service.match(reads(HONOURED_SIBLING))?.length).toBeGreaterThan(0);
+    });
+
+    it("the route really does read it, so declaring it is correct", () => {
+      // If the handler stopped reading the key, the honest contract would drop
+      // the parameter rather than describe it — so this pins why it is listed.
+      expect(source("routes/issues.ts")).toContain(
+        `req.query.${READ_BUT_DISCARDED}`,
+      );
+    });
+
+    it("both operations describe the flag as having no effect", () => {
+      for (const specPath of [
+        "/api/companies/{companyId}/issues",
+        "/api/companies/{companyId}/issues/count",
+      ]) {
+        const parameter = queryParameters(specPath)[READ_BUT_DISCARDED];
+        expect(parameter, `${specPath} must still declare the key`).toBeDefined();
+      }
+      // The prose lives on the parameter via `.describe()`, which the current
+      // converter drops, so assert the Zod-level description instead of the
+      // emitted document. This is the one claim here the document cannot carry.
+      expect(source("routes/openapi.ts")).toContain(
+        "Accepted but has NO EFFECT. Routine executions are included by default.",
+      );
+    });
+
+    it("the blocked path's inert parameters are named in the list description", () => {
+      // `attention=blocked` switches query paths. Four declared parameters go
+      // silently inert there; the operation description must say which.
+      const description: string =
+        spec.paths["/api/companies/{companyId}/issues"].get.description ?? "";
+      for (const inert of [
+        "sortField",
+        "sortDir",
+        "updatedSince",
+        "includeBlockedBy",
+        "includeBlockedInboxAttention",
+      ]) {
+        expect(description, `description must name ${inert}`).toContain(inert);
+      }
+      // And the code property that makes it true: the blocked branch overrides
+      // the two include flags rather than reading them.
+      const service = source("services/issues.ts");
+      expect(service).toContain("includeBlockedBy: true,");
+      expect(service).toContain("includeBlockedInboxAttention: true,");
+    });
+  });
+
   // ─── Controls ──────────────────────────────────────────────────────────────
   // A green run above is also what a blind test reports, so each instrument
   // used there is forced to fail once here.
