@@ -1000,4 +1000,53 @@ describe("list truncation OpenAPI contract", () => {
       expect(operation.description).toContain("X-Result-Limit");
     }
   });
+
+  it("does not tell an `unknown` caller to page until a `false` it never receives", () => {
+    const { spec } = loadSpecRoutes();
+    const issueList = spec.paths["/api/companies/{companyId}/issues"].get;
+    const truncatedProse =
+      issueList.responses["200"].headers["X-Result-Truncated"].description;
+
+    // Two statements describe termination and disagreed. The header says an
+    // authorization-filtered caller receives `unknown`, never `false`, and must
+    // stop on an empty page. The `offset` parameter said "Page with this until
+    // X-Result-Truncated is false" — an instruction that caller cannot carry
+    // out. Same shape as a clamp contradiction: each sentence read correctly
+    // alone.
+    expect(truncatedProse).toContain("never receives `false`");
+    expect(truncatedProse).toContain("company issue list");
+
+    // ⚠️ This half asserts on SOURCE, not on the built document, and that is
+    // deliberate: a query parameter's `.describe()` text does not reach the
+    // spec on this branch. Measured here — 173 query parameters, 0 carrying a
+    // description — because nothing reads Zod 4's `.describe()` registry on the
+    // way into the document. So the contradiction was never reader-visible;
+    // it is a latent one that becomes published the moment that plumbing
+    // lands, and a spec-level assertion would pass today for the wrong reason.
+    const source = fs.readFileSync(
+      path.join(ROUTES_DIR, "openapi.ts"),
+      "utf8",
+    );
+    const offsetProse = source
+      .slice(source.indexOf("offset: z.coerce"))
+      .slice(0, 700);
+    expect(offsetProse).not.toMatch(/Page with this until X-Result-Truncated is false/);
+    expect(offsetProse).toMatch(/unknown/);
+    // One authority, not two copies of a rule that can drift apart.
+    expect(offsetProse).toContain("X-Result-Truncated");
+    expect(offsetProse).toMatch(/single authority/);
+  });
+
+  it("lets the run list keep the plain `false` rule, because it cannot answer `unknown`", () => {
+    const { spec } = loadSpecRoutes();
+    const runList =
+      spec.paths["/api/companies/{companyId}/heartbeat-runs"].get;
+
+    // Naming the boundary rather than the colour: `unknown` is produced in one
+    // place only — the company issue list, for an actor whose rows are
+    // authorization-filtered after the query. The run list always answers
+    // true/false, so "page until false" is reachable there and must NOT be
+    // softened; doing so would spread a caveat to a route it cannot apply to.
+    expect(runList.description).toMatch(/paging until `?X-Result-Truncated`? is false/);
+  });
 });
