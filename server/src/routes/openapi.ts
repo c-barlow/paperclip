@@ -4383,11 +4383,15 @@ registry.registerPath({
     "An empty page is the best end signal available, and it is still not " +
     "proof. Taking the anchor from a previous page removes the mistyped and " +
     "foreign cases, because that anchor was a real comment of this issue. It " +
-    "does NOT remove one more cause: the anchor can be REMOVED between your " +
-    "two requests. Deleting a comment removes the row, so the anchor lookup " +
-    "finds nothing and returns the same `[]` while later comments remain " +
-    "unread. A comment marked deleted is not affected — the anchor lookup does " +
-    "not filter on that flag — so this is specifically the removal case.\n\n" +
+    "does NOT remove one more cause: the row behind the anchor can be ERASED " +
+    "between your two requests, and then the anchor lookup finds nothing and " +
+    "returns the same `[]` while later comments remain unread.\n\n" +
+    "Erasure is narrow. Deleting a comment normally leaves the row in place " +
+    "with a deleted timestamp, and the anchor lookup does not filter on that " +
+    "timestamp, so a normally deleted anchor still works. Only cancelling a " +
+    "queued comment on an active run erases the row. So page on an anchor you " +
+    "do not expect to be cancelled, and do not assume an empty page means the " +
+    "end when you are paging through a live queue.\n\n" +
     "Treat an empty page as a floor, not as a total. If the thread must be " +
     "read completely, omit `limit` and read it in one response, which has no " +
     "anchor to lose.\n\n" +
