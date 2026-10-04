@@ -4388,11 +4388,12 @@ registry.registerPath({
     "returns the same `[]` while later comments remain unread.\n\n" +
     "Deleting a comment the ordinary way does NOT erase it: the row stays with " +
     "a deleted timestamp, and the anchor lookup does not filter on that " +
-    "timestamp, so a normally deleted anchor still pages correctly. Two other " +
-    "things do erase the row. Cancelling a queued comment on an active run " +
-    "deletes it outright, and deleting an agent hard-deletes every comment " +
-    "that agent authored while leaving the issue and its other comments in " +
-    "place.\n\n" +
+    "timestamp, so a normally deleted anchor still pages correctly. Two kinds " +
+    "of row are erased outright. A comment still QUEUED for dispatch is " +
+    "hard-deleted when its author discards it — no run has to be active, and " +
+    "discarding the last entry also cancels the queued wake. And deleting an " +
+    "agent hard-deletes every comment that agent authored, while leaving the " +
+    "issue and its other comments in place.\n\n" +
     "Do not try to pick a safe anchor. No field on a comment tells you its row " +
     "will still be there on your next request, and the author of your anchor " +
     "is not under your control.\n\n" +
