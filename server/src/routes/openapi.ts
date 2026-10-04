@@ -4379,10 +4379,18 @@ registry.registerPath({
     "keep going until a request returns an empty array.\n\n" +
     "Do NOT stop on a short page. A `limit` above the server's cap is clamped, " +
     "so a page can be shorter than the value you sent while rows still " +
-    "remain, and the response records nothing about the clamp. An empty page " +
-    "is the only reliable end signal, and it is reliable only for an anchor " +
-    "taken from a previous page: that anchor is a real comment of this issue, " +
-    "which is what distinguishes it from the unknown-anchor case above.\n\n" +
+    "remain, and the response records nothing about the clamp.\n\n" +
+    "An empty page is the best end signal available, and it is still not " +
+    "proof. Taking the anchor from a previous page removes the mistyped and " +
+    "foreign cases, because that anchor was a real comment of this issue. It " +
+    "does NOT remove one more cause: the anchor can be REMOVED between your " +
+    "two requests. Deleting a comment removes the row, so the anchor lookup " +
+    "finds nothing and returns the same `[]` while later comments remain " +
+    "unread. A comment marked deleted is not affected — the anchor lookup does " +
+    "not filter on that flag — so this is specifically the removal case.\n\n" +
+    "Treat an empty page as a floor, not as a total. If the thread must be " +
+    "read completely, omit `limit` and read it in one response, which has no " +
+    "anchor to lose.\n\n" +
     "Then corroborate the result against `commentCursor.totalComments` on " +
     "`GET /api/issues/{id}/heartbeat-context`; that field documents what the " +
     "comparison can and cannot establish, and why a count alone never proves a " +
