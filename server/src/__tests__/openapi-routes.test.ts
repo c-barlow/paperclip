@@ -1111,8 +1111,18 @@ describe("issue comment completeness OpenAPI contract", () => {
     // timestamp and the anchor lookup does not filter on it — so the contract
     // has to separate the two or readers distrust every anchor equally.
     expect(operation.description).toContain("does NOT erase it");
-    expect(operation.description).toContain("queued comment on an active run");
+    expect(operation.description).toContain("still QUEUED for dispatch");
     expect(operation.description).toContain("deleting an agent hard-deletes");
+
+    // The erasing condition is "the comment is still a pending queue entry and
+    // the actor authored it" — `discardQueuedComment` never consults a run.
+    // An earlier revision said "cancelling a queued comment on an active run",
+    // borrowing the `activeRun && isLegacyQueuedComment` guard that sits on
+    // the `else` branch of the comment-delete route and governs only the
+    // `removeComment` fallback. Attaching it to the discard path told clients
+    // an anchor was safe whenever no run was active. Pin it absent.
+    expect(operation.description).not.toMatch(/queued comment on an active run/);
+    expect(operation.description).toContain("no run has to be active");
 
     // This paragraph is an enumeration, which makes it the kind of claim that
     // rots silently: a new hard delete of the table makes the spec incomplete
@@ -1138,7 +1148,9 @@ describe("issue comment completeness OpenAPI contract", () => {
     };
 
     expect(sitesOf(SERVER_SRC).sort()).toEqual([
-      // The queued-comment cancel path — documented as erasure.
+      // The `deleteComment` port behind `discardQueuedComment` — documented
+      // as erasure. Reached by `DELETE /issues/{id}/queued-comments/{id}` and
+      // by the comment-delete route whenever the comment is still queued.
       "modules/wake-queue/adapters/queued-comment-postgres.ts",
       // `agentService.remove` — documented as erasure. It de-attributes the
       // agent's issues (`createdByAgentId: null`) but deletes its comments
@@ -1147,8 +1159,10 @@ describe("issue comment completeness OpenAPI contract", () => {
       // Company deletion takes the issues with it, so a reader gets a 404
       // rather than a misleading `[]`. Deliberately not in the paragraph.
       "services/companies.ts",
-      // `removeComment`, the primitive behind the cancel path above. Its only
-      // caller is gated on `activeRun && isLegacyQueuedComment`.
+      // `removeComment` — NOT the main cancel path, despite the name. Its one
+      // caller is the `else` branch taken when no queue wake exists, gated on
+      // `activeRun && isLegacyQueuedComment`. Mistaking this for the whole
+      // cancel story is what produced the wrong condition above.
       "services/issues.ts",
     ]);
 
