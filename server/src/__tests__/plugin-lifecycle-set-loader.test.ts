@@ -1,5 +1,5 @@
 /**
- * Regression test for the plugin-lifecycle singleton fix (AMA-10).
+ * Regression test for the plugin-lifecycle singleton fix.
  *
  * The dynamic plugin-tool dispatcher subscribes to lifecycle events on the
  * lifecycle-manager instance it is handed at startup. Previously the HTTP
