@@ -1101,6 +1101,63 @@ describe("issue comment completeness OpenAPI contract", () => {
     expect(limitProse).toMatch(/negative/i);
   });
 
+  it("names every way an anchor row can be erased, and no more", () => {
+    const { spec } = loadSpecRoutes();
+    const operation = spec.paths["/api/issues/{id}/comments"].get;
+
+    // Erasure matters because `listComments` returns `[]` for an anchor it
+    // cannot find, which is byte-identical to end-of-thread. An ordinary
+    // comment deletion is NOT erasure — it leaves the row with a deleted
+    // timestamp and the anchor lookup does not filter on it — so the contract
+    // has to separate the two or readers distrust every anchor equally.
+    expect(operation.description).toContain("does NOT erase it");
+    expect(operation.description).toContain("queued comment on an active run");
+    expect(operation.description).toContain("deleting an agent hard-deletes");
+
+    // This paragraph is an enumeration, which makes it the kind of claim that
+    // rots silently: a new hard delete of the table makes the spec incomplete
+    // without touching the spec. An earlier revision said "only cancelling a
+    // queued comment erases the row" and was already wrong about agent
+    // deletion. So pin the set of hard-delete sites, and fail here when it
+    // grows so whoever adds the fifth re-reads the paragraph above.
+    const SERVER_SRC = path.resolve(__dirname, "..");
+    const sitesOf = (dir: string): string[] => {
+      const found: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "__tests__" || entry.name === "node_modules") continue;
+          found.push(...sitesOf(full));
+        } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+          if (fs.readFileSync(full, "utf8").includes("delete(issueComments)")) {
+            found.push(path.relative(SERVER_SRC, full));
+          }
+        }
+      }
+      return found;
+    };
+
+    expect(sitesOf(SERVER_SRC).sort()).toEqual([
+      // The queued-comment cancel path — documented as erasure.
+      "modules/wake-queue/adapters/queued-comment-postgres.ts",
+      // `agentService.remove` — documented as erasure. It de-attributes the
+      // agent's issues (`createdByAgentId: null`) but deletes its comments
+      // outright, so the issue stays readable with a hole in its thread.
+      "services/agents.ts",
+      // Company deletion takes the issues with it, so a reader gets a 404
+      // rather than a misleading `[]`. Deliberately not in the paragraph.
+      "services/companies.ts",
+      // `removeComment`, the primitive behind the cancel path above. Its only
+      // caller is gated on `activeRun && isLegacyQueuedComment`.
+      "services/issues.ts",
+    ]);
+
+    // No separate "the scan can find something" control is needed here: this
+    // is a set equality, so the four expected paths are themselves the
+    // positive control. A scan that silently matched nothing would fail the
+    // presence half rather than pass as "no new erasure paths".
+  });
+
   it("declares the comments response as an array of rows", () => {
     const { spec } = loadSpecRoutes();
     const schema =

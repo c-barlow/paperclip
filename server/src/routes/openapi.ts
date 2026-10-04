@@ -4386,12 +4386,16 @@ registry.registerPath({
     "does NOT remove one more cause: the row behind the anchor can be ERASED " +
     "between your two requests, and then the anchor lookup finds nothing and " +
     "returns the same `[]` while later comments remain unread.\n\n" +
-    "Erasure is narrow. Deleting a comment normally leaves the row in place " +
-    "with a deleted timestamp, and the anchor lookup does not filter on that " +
-    "timestamp, so a normally deleted anchor still works. Only cancelling a " +
-    "queued comment on an active run erases the row. So page on an anchor you " +
-    "do not expect to be cancelled, and do not assume an empty page means the " +
-    "end when you are paging through a live queue.\n\n" +
+    "Deleting a comment the ordinary way does NOT erase it: the row stays with " +
+    "a deleted timestamp, and the anchor lookup does not filter on that " +
+    "timestamp, so a normally deleted anchor still pages correctly. Two other " +
+    "things do erase the row. Cancelling a queued comment on an active run " +
+    "deletes it outright, and deleting an agent hard-deletes every comment " +
+    "that agent authored while leaving the issue and its other comments in " +
+    "place.\n\n" +
+    "Do not try to pick a safe anchor. No field on a comment tells you its row " +
+    "will still be there on your next request, and the author of your anchor " +
+    "is not under your control.\n\n" +
     "Treat an empty page as a floor, not as a total. If the thread must be " +
     "read completely, omit `limit` and read it in one response, which has no " +
     "anchor to lose.\n\n" +
