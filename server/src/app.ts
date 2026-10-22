@@ -915,7 +915,13 @@ export async function createApp(
       { workerManager },
       { toolDispatcher },
       { workerManager },
-      { toolGateway, lifecycleManager: lifecycle },
+      {
+        toolGateway,
+        lifecycleManager: lifecycle,
+        // Read through app.locals at request time: these routes are built
+        // before `bundledPluginsStartup` below exists.
+        pluginsReady: () => app.locals.bundledPluginsStartup,
+      },
     ),
   );
   api.use(
@@ -1291,6 +1297,12 @@ export async function createApp(
       // tear down workers, and because routes share this instance their events
       // reach the tool dispatcher's listeners. Deliberately after startup so
       // ensureBundledPlugins' lifecycle.load() calls above do not spawn workers.
+      //
+      // The HTTP listener binds before this settles (deliberately — see the
+      // comment on server.listen in index.ts), so the mutating plugin routes
+      // await this same promise via `pluginsReady` before driving the manager.
+      // Without that gate an enable landing in the window would no-op its
+      // activation and advertise tools for a plugin that has no worker.
       lifecycle.setLoader(loader);
     });
   app.locals.bundledPluginsStartup = bundledPluginsStartup;

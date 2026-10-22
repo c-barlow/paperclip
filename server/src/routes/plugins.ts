@@ -453,6 +453,24 @@ export interface PluginRouteToolGatewayDeps {
    * callers (e.g. unit tests) that don't need dispatcher coordination.
    */
   lifecycleManager?: PluginLifecycleManager;
+  /**
+   * Resolves once the startup bundled-plugin pass has settled and the shared
+   * lifecycle manager above has had its runtime loader backfilled.
+   *
+   * The HTTP listener is bound deliberately early (before startup recovery, so
+   * a surviving runner can re-authenticate), which leaves a window where a
+   * lifecycle mutation can arrive while the shared manager still has no runtime
+   * loader. Activation would silently no-op there: the plugin would persist as
+   * `ready` and the dispatcher would advertise its tools, but no worker would
+   * be spawned. The mutating handlers await this first so they run against the
+   * fully wired manager, which also serializes them after the startup
+   * `loadAll()` pass instead of racing it.
+   *
+   * A getter rather than a promise because the composition root builds these
+   * routes before the startup promise exists. Omitted by callers (e.g. unit
+   * tests) that never run the startup pass.
+   */
+  pluginsReady?: () => Promise<unknown> | undefined;
 }
 
 interface PluginScopedApiRequest {
@@ -553,6 +571,17 @@ export function pluginRoutes(
     workerManager: bridgeDeps?.workerManager ?? webhookDeps?.workerManager,
   });
   const issuesSvc = issueService(db);
+
+  /**
+   * Gate a lifecycle mutation on the startup bundled-plugin pass. Never throws:
+   * a failed startup is already logged by the composition root, and the pass
+   * settling (not succeeding) is what makes the shared manager safe to drive.
+   */
+  async function awaitPluginsReady() {
+    const ready = toolGatewayDeps?.pluginsReady?.();
+    if (!ready) return;
+    await ready.catch(() => undefined);
+  }
 
   function matchScopedApiRoute(route: PluginApiRouteDeclaration, method: string, requestPath: string) {
     if (route.method !== method) return null;
@@ -2000,6 +2029,8 @@ export function pluginRoutes(
     const { pluginId } = req.params;
     const purge = req.query.purge === "true";
 
+    await awaitPluginsReady();
+
     const plugin = await resolvePlugin(registry, pluginId);
     if (!plugin) {
       res.status(404).json({ error: "Plugin not found" });
@@ -2035,6 +2066,8 @@ export function pluginRoutes(
     assertInstanceAdmin(req);
     assertPluginManagementVisible();
     const { pluginId } = req.params;
+
+    await awaitPluginsReady();
 
     const plugin = await resolvePlugin(registry, pluginId);
     if (!plugin) {
@@ -2076,6 +2109,8 @@ export function pluginRoutes(
     const { pluginId } = req.params;
     const body = req.body as { reason?: string } | undefined;
     const reason = body?.reason;
+
+    await awaitPluginsReady();
 
     const plugin = await resolvePlugin(registry, pluginId);
     if (!plugin) {
@@ -2239,6 +2274,8 @@ export function pluginRoutes(
     const { pluginId } = req.params;
     const body = req.body as { version?: string } | undefined;
     const version = body?.version;
+
+    await awaitPluginsReady();
 
     const plugin = await resolvePlugin(registry, pluginId);
     if (!plugin) {
